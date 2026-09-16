@@ -275,6 +275,12 @@
                     return;
                 }
 
+                // Tool-side error (e.g. file not found), not actual GeoJSON
+                if (geojson && typeof geojson === "object" && geojson.error) {
+                    showError(geojson.error);
+                    return;
+                }
+
                 if (!geojson || !geojson.type) {
                     showError("GeoJSON must have a top-level \"type\"");
                     return;

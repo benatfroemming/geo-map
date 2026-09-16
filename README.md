@@ -2,6 +2,10 @@
 
 Visualize GeoJSON data directly in Claude Desktop. Ask Claude to map information it finds or generates, and see it rendered on an interactive map.
 
+## Tools
+
+- `visualize_raw_geojson`: The agent provides the raw GeoJson to visualize.
+
 ## Requirements
 
 - Python 3.10+
@@ -72,5 +76,3 @@ Ask Claude to visualize GeoJSON data, or to map information it can search for on
 > "Show me a map of national parks in California"
 > "Plot the boundary of Yellowstone National Park"
 > "Map the top 5 largest cities in Brazil"
-
-Mapping local GeoJSON files is coming soon.

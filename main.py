@@ -1,5 +1,4 @@
 from pathlib import Path
-
 from mcp.server.apps import Apps, ResourceCsp
 from mcp.server.mcpserver import MCPServer
 
@@ -16,9 +15,7 @@ def visualize_raw_geojson(geojson: str) -> str:
     Visualize arbitrary GeoJSON (Feature, FeatureCollection, or Geometry).
     The UI renders points, lines and polygons and fits the map to the data.
     """
-    # Always return something useful for text-only clients / the model
     return geojson
-
 
 html = Path(__file__).parent.joinpath("map.html").read_text(encoding="utf-8")
 
