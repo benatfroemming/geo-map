@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GeoJSON Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.10.0/dist/maplibre-gl.css" />
+    <style>
+        html, body, #map {
+            margin: 0;
+            padding: 0;
+            min-height: 450px;
+            height: 100%;
+            width: 100%;
+        }
+        body {
+            font-family: system-ui, sans-serif;
+        }
+        #error {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            z-index: 10;
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 12px 16px;
+            border-radius: 8px;
+            display: none;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="error"></div>
+
+    <script type="module">
+        import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.10.0/dist/maplibre-gl.mjs';
+
+        const host = window.parent;
+
+        function send(msg) {
+            host.postMessage(msg, "*");
+        }
+
+        function reportSize() {
+            const w = document.documentElement.scrollWidth || window.innerWidth;
+            const h = document.documentElement.scrollHeight || window.innerHeight;
+            document.documentElement.style.height = h + "px";
+            send({
+                jsonrpc: "2.0",
+                method: "ui/notifications/size-changed",
+                params: { width: w, height: h }
+            });
+        }
+
+        function showError(msg) {
+            const el = document.getElementById("error");
+            el.textContent = msg;
+            el.style.display = "block";
+        }
+
+        function getBounds(geojson) {
+            const bounds = new maplibregl.LngLatBounds();
+            const extend = (coords) => {
+                if (!Array.isArray(coords)) return;
+                if (typeof coords[0] === "number") {
+                    bounds.extend(coords);
+                } else {
+                    coords.forEach(extend);
+                }
+            };
+
+            const features = geojson.type === "FeatureCollection"
+                ? geojson.features
+                : geojson.type === "Feature"
+                    ? [geojson]
+                    : [{ type: "Feature", geometry: geojson, properties: {} }];
+
+            for (const f of features) {
+                if (f?.geometry?.coordinates) {
+                    extend(f.geometry.coordinates);
+                }
+            }
+            return bounds.isEmpty() ? null : bounds;
+        }
+
+        function renderMap(geojson) {
+            const map = new maplibregl.Map({
+                container: "map",
+                style: "https://tiles.openfreemap.org/styles/bright",
+                center: [0, 20],
+                zoom: 1.5,
+                attributionControl: false,
+            });
+
+            // Attribution
+            map.addControl(new maplibregl.AttributionControl({
+                compact: false
+            }), "bottom-right");
+
+            map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+            map.on("load", () => {
+                map.addSource("geojson-data", {
+                    type: "geojson",
+                    data: geojson
+                });
+
+                // Polygons
+                map.addLayer({
+                    id: "geojson-fill",
+                    type: "fill",
+                    source: "geojson-data",
+                    filter: ["==", "$type", "Polygon"],
+                    paint: {
+                        "fill-color": "#1e3a5f",
+                        "fill-opacity": 0.45
+                    }
+                });
+                map.addLayer({
+                    id: "geojson-outline",
+                    type: "line",
+                    source: "geojson-data",
+                    filter: ["==", "$type", "Polygon"],
+                    paint: {
+                        "line-color": "#0f172a",
+                        "line-width": 2
+                    }
+                });
+
+                // Lines
+                map.addLayer({
+                    id: "geojson-line",
+                    type: "line",
+                    source: "geojson-data",
+                    filter: ["==", "$type", "LineString"],
+                    layout: {
+                        "line-join": "round",
+                        "line-cap": "round"
+                    },
+                    paint: {
+                        "line-color": "#1e3a5f",
+                        "line-width": 3
+                    }
+                });
+
+                // Points: solid core + transparent gap + outer ring
+                map.addLayer({
+                    id: "geojson-circle-outer",
+                    type: "circle",
+                    source: "geojson-data",
+                    filter: ["==", "$type", "Point"],
+                    paint: {
+                        "circle-radius": 7,
+                        "circle-color": "transparent",
+                        "circle-stroke-width": 2.5,
+                        "circle-stroke-color": "#1e3a5f",
+                        "circle-stroke-opacity": 0.9
+                    }
+                });
+
+                // Solid inner circle
+                map.addLayer({
+                    id: "geojson-circle-inner",
+                    type: "circle",
+                    source: "geojson-data",
+                    filter: ["==", "$type", "Point"],
+                    paint: {
+                        "circle-radius": 5.5,
+                        "circle-color": "#1e3a5f",
+                        "circle-stroke-width": 0
+                    }
+                });
+
+                const clickableLayers = [
+                    "geojson-fill",
+                    "geojson-line",
+                    "geojson-circle-inner",
+                    "geojson-circle-outer"
+                ];
+
+                // Build popup HTML from a feature's properties
+                function propertiesHTML(props) {
+                    if (!props || Object.keys(props).length === 0) {
+                        return "<em>No properties</em>";
+                    }
+                    const rows = Object.entries(props)
+                        .map(([key, value]) => `
+                            <tr>
+                                <td style="font-weight:600;padding:2px 8px 2px 0;vertical-align:top;">${key}</td>
+                                <td style="padding:2px 0;">${value}</td>
+                            </tr>
+                        `)
+                        .join("");
+                    return `<table style="font-size:13px;border-collapse:collapse;">${rows}</table>`;
+                }
+
+                const popup = new maplibregl.Popup({
+                    closeButton: true,
+                    closeOnClick: true,
+                    maxWidth: "280px"
+                });
+
+                map.on("click", clickableLayers, (e) => {
+                    if (!e.features || !e.features.length) return;
+                    const feature = e.features[0];
+
+                    // For point features use the click location; for polygons/lines use the event lngLat
+                    const coordinates = feature.geometry.type === "Point"
+                        ? feature.geometry.coordinates.slice()
+                        : [e.lngLat.lng, e.lngLat.lat];
+
+                    popup.setLngLat(coordinates)
+                        .setHTML(propertiesHTML(feature.properties))
+                        .addTo(map);
+                });
+
+                // Pointer cursor on hover for clickable layers
+                clickableLayers.forEach((layerId) => {
+                    map.on("mouseenter", layerId, () => {
+                        map.getCanvas().style.cursor = "pointer";
+                    });
+                    map.on("mouseleave", layerId, () => {
+                        map.getCanvas().style.cursor = "";
+                    });
+                });
+
+                const bounds = getBounds(geojson);
+                if (bounds) {
+                    map.fitBounds(bounds, {
+                        padding: 48,
+                        maxZoom: 14,
+                        duration: 800
+                    });
+                }
+
+                map.once("idle", () => reportSize());
+            });
+
+            map.on("error", (e) => {
+                console.error(e);
+                showError("Map error: " + (e.error?.message || "unknown"));
+            });
+        }
+
+        window.addEventListener("message", (event) => {
+            const data = event.data;
+            if (!data) return;
+
+            // Handshake complete
+            if (data.id === 1 && data.result) {
+                send({
+                    jsonrpc: "2.0",
+                    method: "ui/notifications/initialized",
+                    params: {}
+                });
+                return;
+            }
+
+            // Tool result from the host
+            if (data.method === "ui/notifications/tool-result") {
+                const raw = data.params?.content?.[0]?.text;
+                if (raw == null) {
+                    showError("No GeoJSON received from tool");
+                    return;
+                }
+
+                let geojson;
+                try {
+                    geojson = typeof raw === "string" ? JSON.parse(raw) : raw;
+                } catch (err) {
+                    showError("Invalid GeoJSON: " + err.message);
+                    return;
+                }
+
+                if (!geojson || !geojson.type) {
+                    showError("GeoJSON must have a top-level \"type\"");
+                    return;
+                }
+
+                renderMap(geojson);
+            }
+        });
+
+        // Kick off handshake
+        send({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "ui/initialize",
+            params: {
+                protocolVersion: "2025-11-25",
+                appInfo: { name: "geojson-map", version: "1.0.0" },
+                appCapabilities: {}
+            }
+        });
+
+        reportSize();
+    </script>
+</body>
+</html>
