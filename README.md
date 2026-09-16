@@ -5,6 +5,7 @@ Visualize GeoJSON data directly in Claude Desktop. Ask Claude to map information
 ## Tools
 
 - `visualize_raw_geojson`: The agent provides the raw GeoJson to visualize.
+- `visualize_url_geojson`: The agent provides the URL to the GeoJson to visualize.
 
 ## Requirements
 
